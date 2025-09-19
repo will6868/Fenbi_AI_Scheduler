@@ -2,7 +2,7 @@
 
 # --- 本地开发配置 ---
 GUNICORN_WORKERS=4
-GUNICORN_BIND="0.0.0.0:5002" # 使用本地开发端口
+GUNICORN_BIND="0.0.0.0:5000" # 统一使用 5000 端口
 APP_INSTANCE="app:app"
 GUNICORN_PID_FILE="gunicorn.pid"
 WORKER_PID_FILE="worker.pid"

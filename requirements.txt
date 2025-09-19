@@ -1,0 +1,17 @@
+Flask
+Flask-SQLAlchemy
+gunicorn
+Markdown
+numpy
+opencv-python
+openpyxl
+pandas
+Pillow
+PyMuPDF
+python-docx
+redis
+requests
+rq
+SQLAlchemy
+rq-scheduler
+pandas

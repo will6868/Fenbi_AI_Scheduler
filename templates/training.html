@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>专项训练</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">&larr; 返回仪表盘</a>
+        <div class="page-header">
+            <h1 id="training-title">专项训练</h1>
+            <input type="date" id="training-date" name="training_date" required>
+        </div>
+
+        <div class="section" id="dashboard">
+            <h2>训练仪表盘</h2>
+            <div class="donut-chart-container">
+                <div class="donut-chart-wrapper">
+                    <div id="questions-chart" class="donut-chart">
+                        <div id="questions-text" class="donut-chart-text">0/0</div>
+                    </div>
+                    <p class="donut-chart-label">目标题数</p>
+                </div>
+                <div class="donut-chart-wrapper">
+                    <div id="accuracy-chart" class="donut-chart">
+                        <div id="accuracy-text" class="donut-chart-text">0%</div>
+                    </div>
+                    <p class="donut-chart-label">目标正确率</p>
+                </div>
+                <div class="donut-chart-wrapper">
+                    <div id="time-chart" class="donut-chart">
+                        <div id="time-text" class="donut-chart-text">0/0</div>
+                    </div>
+                    <p class="donut-chart-label">目标时长 (分钟)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>训练目标</h2>
+            <form id="goal-form" class="goal-form">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="target-questions">目标题数:</label>
+                        <input type="number" id="target-questions" name="target_questions" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="target-accuracy">目标正确率 (%):</label>
+                        <input type="number" id="target-accuracy" name="target_accuracy" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="target-time">目标时长 (分钟):</label>
+                        <input type="number" id="target-time" name="target_time" required>
+                    </div>
+                </div>
+                <button type="submit">更新目标</button>
+            </form>
+        </div>
+
+        <div class="section timer-section">
+            <h2>计时器</h2>
+            <div id="timer-display">00:00:00</div>
+            <div class="timer-controls">
+                <button id="start-pause-btn">开始</button>
+                <button id="reset-btn" class="secondary-btn">重置</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>文件上传与分析</h2>
+            <form id="upload-form" enctype="multipart/form-data" class="upload-form">
+              <label for="file-input" class="file-input-label">1. 选择文件 (可多选):</label>
+              <input type="file" name="files[]" id="file-input" multiple required accept="image/*,application/pdf">
+              <button type="submit">上传文件</button>
+            </form>
+            
+            <div id="file-list-container">
+                <label>2. 勾选需要分析的文件:</label>
+                <div id="file-list"></div>
+                <button id="analyze-btn" class="error-btn">开始分析勾选的文件</button>
+            </div>
+
+            <div class="log-container">
+                <div class="log-box-wrapper">
+                    <h3>原始返回日志 (调试用):</h3>
+                    <div id="raw-log-box" class="log-box raw-log"></div>
+                </div>
+                <div class="log-box-wrapper">
+                    <h3>最终分析结果 (JSON):</h3>
+                    <div id="analysis-log-box" class="log-box analysis-log"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section" id="history-log">
+            <h2>提交历史</h2>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>提交时间</th>
+                            <th>题型</th>
+                            <th>难度</th>
+                            <th>总题数</th>
+                            <th>已答</th>
+                            <th>正确</th>
+                            <th>错误</th>
+                            <th>总正确率</th>
+                            <th>已答正确率</th>
+                            <th>总用时(分)</th>
+                            <th>得分</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-log-body">
+                        <!-- Log rows will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Dashboard Logic ---
+        function updateDonutChart(chartId, textId, percentage, textContent) {
+            const chart = document.getElementById(chartId);
+            const text = document.getElementById(textId);
+            
+            percentage = Math.max(0, Math.min(100, Math.round(percentage))); // Clamp between 0 and 100
+            
+            chart.style.background = `conic-gradient(#4CAF50 0% ${percentage}%, #e0e0e0 ${percentage}% 100%)`;
+            text.textContent = textContent;
+        }
+
+
+        // --- New Logic to Load a Single Goal's Details ---
+        async function loadTrainingData() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentTrainingType = urlParams.get('type');
+            const goalId = urlParams.get('goal_id');
+            const selectedDate = document.getElementById('training-date').value;
+
+            if (!currentTrainingType || !goalId || !selectedDate) return;
+
+            // 1. Fetch the specific goal's details
+            const detailsResponse = await fetch(`/get_training_details?date=${selectedDate}&goal_id=${goalId}`);
+            if (!detailsResponse.ok) {
+                console.error("Failed to fetch training details for goal ID:", goalId);
+                return;
+            }
+            const detailsData = await detailsResponse.json();
+            const { goal, progress } = detailsData;
+
+            // 2. Populate the goal form with the data
+            document.getElementById('target-questions').value = goal.target_questions || '';
+            document.getElementById('target-accuracy').value = goal.target_accuracy || '';
+            document.getElementById('target-time').value = goal.target_time_minutes || '';
+
+            // 3. Update the dashboard charts
+            // Questions Chart
+            updateDonutChart('questions-chart', 'questions-text', progress.percentage, `${progress.answered_questions}/${goal.target_questions}`);
+
+            // Fetch full history to calculate current accuracy and time
+            const historyResponse = await fetch(`/get_history?type=${encodeURIComponent(currentTrainingType)}&date=${selectedDate}`);
+            const todaysHistory = historyResponse.ok ? await historyResponse.json() : [];
+
+            const totalCorrectToday = todaysHistory.reduce((sum, log) => sum + (log.correct_answers || 0), 0);
+            const totalAnsweredToday = todaysHistory.reduce((sum, log) => sum + (log.questions_answered || 0), 0);
+            const totalTimeToday = todaysHistory.reduce((sum, log) => sum + (log.total_time_minutes || 0), 0);
+            const currentAccuracy = totalAnsweredToday > 0 ? (totalCorrectToday / totalAnsweredToday) * 100 : 0;
+
+            // Accuracy Chart
+            const accuracyPercentage = goal.target_accuracy > 0 ? (currentAccuracy / goal.target_accuracy) * 100 : 0;
+            updateDonutChart('accuracy-chart', 'accuracy-text', accuracyPercentage, `${currentAccuracy.toFixed(1)}%`);
+
+            // Time Chart
+            const timePercentage = goal.target_time_minutes > 0 ? (totalTimeToday / goal.target_time_minutes) * 100 : 0;
+            updateDonutChart('time-chart', 'time-text', timePercentage, `${totalTimeToday.toFixed(1)}/${goal.target_time_minutes}`);
+
+            // 4. Render the history log table
+            const logBody = document.getElementById('history-log-body');
+            logBody.innerHTML = ''; // Clear existing logs
+            todaysHistory.sort((a, b) => (b.submission_time || '').localeCompare(a.submission_time || ''));
+
+            todaysHistory.forEach(log => {
+                const row = document.createElement('tr');
+
+                // --- Frontend Calculation for Robustness ---
+                const correct = log.correct_answers || 0;
+                const incorrect = log.incorrect_answers || 0;
+                const total = log.total_questions || 0;
+                
+                const answered = correct + incorrect;
+                const overallAcc = total > 0 ? `${((correct / total) * 100).toFixed(1)}%` : 'N/A';
+                const answeredAcc = answered > 0 ? `${((correct / answered) * 100).toFixed(1)}%` : 'N/A';
+
+                row.innerHTML = `
+                    <td>${log.submission_time ? log.submission_time.replace('T', ' ') : 'N/A'}</td>
+                    <td>${log.practice_type || 'N/A'}</td>
+                    <td>${log.difficulty || 'N/A'}</td>
+                    <td>${total}</td>
+                    <td>${answered}</td>
+                    <td>${correct}</td>
+                    <td>${incorrect}</td>
+                    <td>${overallAcc}</td>
+                    <td>${answeredAcc}</td>
+                    <td>${log.total_time_minutes || 'N/A'}</td>
+                    <td>${log.completion_score || 'N/A'}</td>
+                `;
+                logBody.appendChild(row);
+            });
+        }
+
+
+        // --- Timer Logic ---
+        const timerDisplay = document.getElementById('timer-display');
+        const startPauseBtn = document.getElementById('start-pause-btn');
+        const resetBtn = document.getElementById('reset-btn');
+
+        let timerInterval = null;
+        let seconds = 0;
+        let isRunning = false;
+
+        function formatTime(sec) {
+            const hours = Math.floor(sec / 3600);
+            const minutes = Math.floor((sec % 3600) / 60);
+            const seconds = sec % 60;
+            return [hours, minutes, seconds].map(v => v.toString().padStart(2, '0')).join(':');
+        }
+
+        function updateTimer() {
+            seconds++;
+            timerDisplay.textContent = formatTime(seconds);
+        }
+
+        startPauseBtn.addEventListener('click', () => {
+            if (isRunning) {
+                clearInterval(timerInterval);
+                startPauseBtn.textContent = '继续';
+            } else {
+                timerInterval = setInterval(updateTimer, 1000);
+                startPauseBtn.textContent = '暂停';
+            }
+            isRunning = !isRunning;
+        });
+
+        resetBtn.addEventListener('click', () => {
+            clearInterval(timerInterval);
+            isRunning = false;
+            seconds = 0;
+            timerDisplay.textContent = formatTime(seconds);
+            startPauseBtn.textContent = '开始';
+        });
+
+        // --- File Upload and Analysis Logic (Copied from index.html) ---
+        document.getElementById('upload-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const fileInput = document.getElementById('file-input');
+            const fileListDiv = document.getElementById('file-list');
+            
+            if (fileInput.files.length === 0) {
+                alert('请先选择文件。');
+                return;
+            }
+
+            const formData = new FormData();
+            for (const file of fileInput.files) {
+                formData.append('files[]', file);
+            }
+
+            const response = await fetch('/upload', { method: 'POST', body: formData });
+            const result = await response.json();
+
+            if (response.ok) {
+                const existingFiles = new Set(Array.from(fileListDiv.querySelectorAll('input')).map(i => i.value));
+                result.uploaded_files.forEach(filename => {
+                    if (!existingFiles.has(filename)) {
+                        const div = document.createElement('div');
+                        div.innerHTML = `<input type="checkbox" name="selected_files" value="${filename}" checked> <label>${filename}</label>`;
+                        fileListDiv.appendChild(div);
+                    }
+                });
+            } else {
+                alert('上传失败: ' + result.error);
+            }
+        });
+
+        document.getElementById('analyze-btn').addEventListener('click', async function() {
+            const checkedFiles = document.querySelectorAll('#file-list input[name="selected_files"]:checked');
+            const filenames = Array.from(checkedFiles).map(cb => cb.value);
+
+            if (filenames.length === 0) {
+                alert('请先勾选要分析的文件。');
+                return;
+            }
+
+            const trainingGoal = {
+                target_questions: parseInt(document.getElementById('target-questions').value),
+                target_accuracy: parseInt(document.getElementById('target-accuracy').value),
+                target_time_minutes: parseInt(document.getElementById('target-time').value)
+            };
+
+            const rawLogBox = document.getElementById('raw-log-box');
+            const finalLogBox = document.getElementById('analysis-log-box');
+            
+            rawLogBox.textContent = '已提交分析任务到后台队列...';
+            finalLogBox.textContent = '';
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentTrainingType = urlParams.get('type');
+            const selectedDate = document.getElementById('training-date').value;
+
+            const response = await fetch('/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    filenames: filenames,
+                    goal: trainingGoal,
+                    category: currentTrainingType,
+                    date: selectedDate
+                })
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                rawLogBox.textContent = `提交任务失败: ${result.error || '未知错误'}`;
+                return;
+            }
+
+            const jobId = result.job_id;
+            rawLogBox.textContent = `任务已提交，Job ID: ${jobId}. 等待后台处理...`;
+            
+            // Start polling for the result
+            pollJobStatus(jobId);
+        });
+
+        function pollJobStatus(jobId) {
+            const rawLogBox = document.getElementById('raw-log-box');
+            const finalLogBox = document.getElementById('analysis-log-box');
+
+            const interval = setInterval(async () => {
+                const response = await fetch(`/analysis_status/${jobId}`);
+                if (!response.ok) {
+                    rawLogBox.textContent += `\n无法获取任务状态，将停止轮询。`;
+                    clearInterval(interval);
+                    return;
+                }
+
+                const data = await response.json();
+                rawLogBox.textContent = `Job ID: ${jobId}\n状态: ${data.status}`;
+
+                if (data.status === 'finished') {
+                    clearInterval(interval);
+                    finalLogBox.textContent = JSON.stringify(data.result, null, 2);
+                    if (data.result && data.result.error) {
+                         rawLogBox.textContent += `\n任务处理完成，但出现错误: ${data.result.error}`;
+                    } else {
+                         rawLogBox.textContent += `\n任务处理完成！`;
+                    }
+                    loadTrainingData(); // Refresh dashboard and history
+                } else if (data.status === 'failed') {
+                    clearInterval(interval);
+                    rawLogBox.textContent += `\n任务失败。`;
+                    finalLogBox.textContent = JSON.stringify(data.result, null, 2);
+                }
+                // If status is 'queued' or 'started', the loop will just continue.
+            }, 3000); // Poll every 3 seconds
+        }
+
+        // --- Goal Management (for a single goal) ---
+        document.getElementById('goal-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const urlParams = new URLSearchParams(window.location.search);
+            const trainingType = urlParams.get('type');
+            const goalId = parseInt(urlParams.get('goal_id'));
+            const selectedDate = document.getElementById('training-date').value;
+
+            if (isNaN(goalId)) {
+                alert('错误: 缺少有效的目标ID。');
+                return;
+            }
+
+            const updatedGoal = {
+                type: trainingType,
+                target_questions: parseInt(document.getElementById('target-questions').value),
+                target_accuracy: parseInt(document.getElementById('target-accuracy').value),
+                target_time_minutes: parseInt(document.getElementById('target-time').value)
+            };
+
+            // Fetch current plan
+            const planResponse = await fetch(`/get_plan?date=${selectedDate}`);
+            const planData = await planResponse.json();
+            
+            // Update the specific goal by its index
+            if (planData.goals && planData.goals[goalId]) {
+                planData.goals[goalId] = updatedGoal;
+            } else {
+                alert('错误: 无法找到要更新的目标。');
+                return;
+            }
+
+            // Save the entire updated plan
+            const saveResponse = await fetch('/save_plan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plan_date: selectedDate, goals: planData.goals })
+            });
+
+            if (saveResponse.ok) {
+                alert('目标已更新！');
+                loadTrainingData(); // Refresh data on screen
+            } else {
+                alert('目标保存失败，请稍后重试。');
+            }
+        });
+
+        // --- Page Initialization ---
+        window.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const trainingType = urlParams.get('type');
+            const dateParam = urlParams.get('date');
+
+            const datePicker = document.getElementById('training-date');
+            // Use date from URL param, otherwise default to today
+            datePicker.value = dateParam || new Date().toISOString().split('T')[0];
+
+            if (trainingType) {
+                document.getElementById('training-title').textContent = `专项训练: ${trainingType}`;
+            }
+            
+            // Load initial data for the specific goal
+            await loadTrainingData();
+
+            // Add event listener for date changes
+            datePicker.addEventListener('change', () => {
+                // When date changes, we need to rebuild the URL as the goal ID might not be valid for the new date.
+                // For simplicity, we just reload the page with the new date, assuming the user will navigate from the dashboard again.
+                // A more advanced implementation could try to find a matching goal on the new date.
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('date', datePicker.value);
+                // We keep the goal_id and type, the backend will determine if it's valid for the new date.
+                window.location.href = newUrl.href;
+            });
+        });
+    </script>
+</body>
+</html>

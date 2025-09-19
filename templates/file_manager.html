@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .file-manager {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .file-browser {
+            flex-grow: 1;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        .breadcrumb {
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+        .breadcrumb a {
+            text-decoration: none;
+            color: #007bff;
+        }
+        .breadcrumb span {
+            color: #6c757d;
+        }
+        .file-list {
+            list-style: none;
+            padding: 0;
+        }
+        .file-list-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .file-list-item:hover {
+            background-color: #f8f9fa;
+        }
+        .file-list-item .file-icon {
+            margin-right: 15px;
+            width: 20px;
+            text-align: center;
+        }
+        .file-list-item .file-name {
+            flex-grow: 1;
+        }
+        .file-list-item .file-actions button {
+            margin-left: 10px;
+            visibility: hidden;
+        }
+        .file-list-item:hover .file-actions button {
+            visibility: visible;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 800px;
+            border-radius: 5px;
+            position: relative;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .modal-body {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        .close-button {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+        }
+        #db-table-container {
+            margin-top: 15px;
+            max-height: 60vh;
+            overflow: auto;
+        }
+        #db-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #db-table th, #db-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        #db-table th {
+            background-color: #f2f2f2;
+        }
+        #db-table td[contenteditable="true"] {
+            background-color: #fffacd;
+        }
+        .root-selector {
+            margin-bottom: 15px;
+        }
+        .root-selector .btn {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container file-manager">
+        <header>
+            <h1><i class="fas fa-folder-open"></i> 文件管理</h1>
+            <nav>
+                <a href="/" class="nav-button">主页</a>
+                <a href="/settings" class="nav-button">设置</a>
+            </nav>
+        </header>
+
+        <div class="file-browser">
+            <div class="root-selector">
+                <button class="btn" onclick="fetchFiles('database')">Database</button>
+                <button class="btn" onclick="fetchFiles('uploads')">Uploads</button>
+            </div>
+            <div class="breadcrumb" id="breadcrumb"></div>
+            <ul class="file-list" id="file-list"></ul>
+        </div>
+    </div>
+
+    <!-- File Content Modal -->
+    <div id="file-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-filename"></h2>
+                <span class="close-button" onclick="closeModal('file-modal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <pre id="file-content-display"></pre>
+                <div id="image-display-container" style="text-align: center;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DB Table Modal -->
+    <div id="db-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="db-modal-filename"></h2>
+                <span class="close-button" onclick="closeModal('db-modal')">&times;</span>
+            </div>
+            <div class="modal-body">
+                <label for="table-selector">Select a table:</label>
+                <select id="table-selector" onchange="renderTable()"></select>
+                <div id="db-table-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fileList = document.getElementById('file-list');
+        const breadcrumb = document.getElementById('breadcrumb');
+        const fileModal = document.getElementById('file-modal');
+        const modalFilename = document.getElementById('modal-filename');
+        const fileContentDisplay = document.getElementById('file-content-display');
+        const imageDisplayContainer = document.getElementById('image-display-container');
+        
+        const dbModal = document.getElementById('db-modal');
+        const dbModalFilename = document.getElementById('db-modal-filename');
+        const tableSelector = document.getElementById('table-selector');
+        const dbTableContainer = document.getElementById('db-table-container');
+
+        let currentDbPath = '';
+        let currentTableData = {};
+
+        async function fetchFiles(path) {
+            try {
+                const response = await fetch(`/api/files?path=${path}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const files = await response.json();
+                renderFiles(files, path);
+                renderBreadcrumb(path);
+            } catch (error) {
+                console.error("Failed to fetch files:", error);
+                fileList.innerHTML = '<li>Error loading files.</li>';
+            }
+        }
+
+        function renderFiles(files, path) {
+            fileList.innerHTML = '';
+
+            // Add '..' (go up) link if not in a root directory
+            if (path !== 'database' && path !== 'uploads') {
+                const parentPath = path.substring(0, path.lastIndexOf('/'));
+                const upItem = document.createElement('li');
+                upItem.className = 'file-list-item';
+                upItem.innerHTML = `
+                    <span class="file-icon"><i class="fas fa-level-up-alt"></i></span>
+                    <span class="file-name">..</span>
+                `;
+                upItem.onclick = () => fetchFiles(parentPath);
+                fileList.appendChild(upItem);
+            }
+
+            // Sort files: folders first, then by name
+            files.sort((a, b) => {
+                if (a.is_dir !== b.is_dir) {
+                    return a.is_dir ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name);
+            });
+
+            files.forEach(file => {
+                const item = document.createElement('li');
+                item.className = 'file-list-item';
+                const icon = file.is_dir ? 'fa-folder' : 'fa-file-alt';
+
+                item.innerHTML = `
+                    <span class="file-icon"><i class="fas ${icon}"></i></span>
+                    <span class="file-name">${file.name}</span>
+                    <div class="file-actions">
+                        <button class="btn btn-danger" onclick="event.stopPropagation(); deleteFile('${file.path}', ${file.is_dir})">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                `;
+
+                if (file.is_dir) {
+                    item.onclick = () => fetchFiles(file.path);
+                } else {
+                    item.onclick = () => viewFile(file.path);
+                }
+                fileList.appendChild(item);
+            });
+        }
+
+        function renderBreadcrumb(path) {
+            breadcrumb.innerHTML = '';
+            const parts = path.split('/');
+            let currentLink = '';
+
+            const root = parts[0];
+            const rootLink = document.createElement('a');
+            rootLink.href = '#';
+            rootLink.innerText = root;
+            rootLink.onclick = (e) => {
+                e.preventDefault();
+                fetchFiles(root);
+            };
+            breadcrumb.appendChild(rootLink);
+
+            let pathAccumulator = root;
+            for (let i = 1; i < parts.length; i++) {
+                pathAccumulator += `/${parts[i]}`;
+                const separator = document.createElement('span');
+                separator.innerText = ' / ';
+                breadcrumb.appendChild(separator);
+
+                const partLink = document.createElement('a');
+                partLink.href = '#';
+                partLink.innerText = parts[i];
+                const capturedPath = pathAccumulator;
+                partLink.onclick = (e) => {
+                    e.preventDefault();
+                    fetchFiles(capturedPath);
+                };
+                breadcrumb.appendChild(partLink);
+            }
+        }
+
+        async function viewFile(path) {
+            const isImage = /\.(jpe?g|png|gif|webp|svg)$/i.test(path);
+
+            // Reset modal state
+            fileContentDisplay.style.display = 'none';
+            imageDisplayContainer.style.display = 'none';
+            imageDisplayContainer.innerHTML = '';
+
+            if (isImage) {
+                modalFilename.innerText = path.split('/').pop();
+                imageDisplayContainer.innerHTML = `<img src="/${path}" style="max-width: 100%; height: auto;">`;
+                imageDisplayContainer.style.display = 'block';
+                fileModal.style.display = 'block';
+                return;
+            }
+
+            // Handle DB and other files by fetching from the API
+            try {
+                const response = await fetch(`/api/file?path=${path}`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to load file content');
+                }
+                const data = await response.json();
+
+                if (data.type === 'database') {
+                    viewDatabase(data);
+                } else { // Text files
+                    modalFilename.innerText = path.split('/').pop();
+                    fileContentDisplay.innerText = data.content;
+                    fileContentDisplay.style.display = 'block';
+                    fileModal.style.display = 'block';
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        function viewDatabase(data) {
+            currentDbPath = data.path;
+            dbModalFilename.innerText = data.path.split('/').pop();
+            
+            tableSelector.innerHTML = '';
+            data.tables.forEach(table => {
+                const option = document.createElement('option');
+                option.value = table;
+                option.innerText = table;
+                tableSelector.appendChild(option);
+            });
+
+            dbTableContainer.innerHTML = '';
+            dbModal.style.display = 'block';
+            if (data.tables.length > 0) {
+                renderTable();
+            }
+        }
+
+        async function renderTable() {
+            const tableName = tableSelector.value;
+            if (!tableName) return;
+
+            try {
+                const response = await fetch(`/api/db/table_data?path=${currentDbPath}&table=${tableName}`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                currentTableData = data; // Store for later use (save/delete)
+                const { columns, rows, primary_key } = data;
+
+                let tableHtml = '<table id="db-table"><thead><tr>';
+                columns.forEach(col => tableHtml += `<th>${col}</th>`);
+                tableHtml += '<th>Actions</th></tr></thead><tbody>';
+
+                rows.forEach((row, rowIndex) => {
+                    const pk_value = row[primary_key];
+                    tableHtml += `<tr data-pk="${pk_value}">`;
+                    columns.forEach(col => {
+                        const isPk = col === primary_key;
+                        tableHtml += `<td contenteditable="${!isPk}" data-column="${col}">${row[col] || ''}</td>`;
+                    });
+                    tableHtml += `<td>
+                        <button class="btn" onclick="saveRowChanges(this, '${primary_key}', ${pk_value})"><i class="fas fa-save"></i></button>
+                        <button class="btn btn-danger" onclick="deleteRow(this, '${primary_key}', ${pk_value})"><i class="fas fa-trash-alt"></i></button>
+                    </td>`;
+                    tableHtml += '</tr>';
+                });
+
+                tableHtml += '</tbody></table>';
+                dbTableContainer.innerHTML = tableHtml;
+
+            } catch (error) {
+                dbTableContainer.innerHTML = `<p style="color: red;">Error loading table: ${error.message}</p>`;
+            }
+        }
+
+        async function saveRowChanges(button, primaryKey, pkValue) {
+            const rowElement = button.closest('tr');
+            const rowData = { [primaryKey]: pkValue };
+            
+            rowElement.querySelectorAll('td[contenteditable="true"]').forEach(cell => {
+                rowData[cell.dataset.column] = cell.innerText;
+            });
+
+            try {
+                const response = await fetch('/api/db/update_row', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        path: currentDbPath,
+                        table: tableSelector.value,
+                        primary_key: primaryKey,
+                        row_data: rowData
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error);
+                alert(result.message);
+                button.style.backgroundColor = '#28a745'; // Indicate success
+                setTimeout(() => button.style.backgroundColor = '', 1500);
+            } catch (error) {
+                alert(`Error saving row: ${error.message}`);
+            }
+        }
+
+        async function deleteRow(button, primaryKey, pkValue) {
+            if (!confirm(`Are you sure you want to delete the row where ${primaryKey} = ${pkValue}?`)) return;
+
+            try {
+                const response = await fetch('/api/db/delete_row', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        path: currentDbPath,
+                        table: tableSelector.value,
+                        primary_key: primaryKey,
+                        pk_value: pkValue
+                    })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error);
+                alert(result.message);
+                button.closest('tr').remove();
+            } catch (error) {
+                alert(`Error deleting row: ${error.message}`);
+            }
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        async function deleteFile(path, isDir) {
+            const confirmation = confirm(`Are you sure you want to delete ${isDir ? 'directory' : 'file'}: ${path}?`);
+            if (!confirmation) return;
+
+            try {
+                const response = await fetch('/api/file/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: path })
+                });
+                const result = await response.json();
+                if (response.ok && result.status === 'success') {
+                    alert(result.message);
+                    // Refresh the file list from the parent directory
+                    const parentPath = path.substring(0, path.lastIndexOf('/'));
+                    fetchFiles(parentPath || 'database');
+                } else {
+                    throw new Error(result.error || 'Failed to delete');
+                }
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Initial load
+        fetchFiles('database');
+
+        // Close modal if clicked outside of it
+        window.onclick = function(event) {
+            if (event.target == fileModal) {
+                closeModal('file-modal');
+            }
+            if (event.target == dbModal) {
+                closeModal('db-modal');
+            }
+        }
+    </script>
+</body>
+</html>

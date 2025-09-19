@@ -1,0 +1,7 @@
+{
+    "api_url": "在此处输入您的 API URL",
+    "api_key": "在此处输入您的 API 密钥",
+    "model": "在此处输入您要使用的模型名称",
+    "wechat_webhook_url": "在此处输入您的企业微信 Webhook URL (可选)",
+    "app_base_url": "在此处输入您的应用基础 URL (例如: localhost:5000)"
+}

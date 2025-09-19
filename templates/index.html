@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能学习伙伴</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script id="goals-data" type="application/json">
+        {{ goals_progress|tojson|safe }}
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.3.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>智能学习伙伴</h1>
+            <div>
+                <a href="/analysis" class="nav-link">数据分析</a>
+                <a href="/settings" class="nav-link" style="margin-left: 15px;">AI 设置</a>
+            </div>
+        </div>
+        <div class="section dashboard">
+            <div class="full-width">
+                <h2>今日仪表盘</h2>
+                <input type="date" id="dashboard-date" name="dashboard_date" required>
+                
+                <!-- Main Goal Progress Ring -->
+                <div id="main-goal-progress" 
+                     style="width: 250px; height: 250px; margin: 1em auto;"
+                     data-answered="{{ total_answered|default(0) }}"
+                     data-target="{{ total_target|default(0) }}"
+                     data-percentage="{{ percentage|default(0) }}">
+                </div>
+
+                <div id="current-gauge-wrapper" style="display: flex; justify-content: center; margin: 1em 0;"></div>
+                <div id="progress-gauges"></div>
+                <h3 id="current-training-mode" style="text-align: center; margin-top: 1em;">当前训练模式: 无</h3>
+            </div>
+            <div class="full-width" style="grid-column: 1 / -1;">
+                <div>
+                    <h3>每日详细计划</h3>
+                    <div id="daily-schedule-container"></div>
+                    <div id="ai-suggestion-box" class="ai-box">AI 建议将会显示在这里。</div>
+                    <form id="adjust-schedule-form">
+                        <input type="text" id="schedule-adjustment-input" placeholder="输入指令调整计划 (例如: 晚上7点增加1小时阅读)" required>
+                        <button type="submit">让 AI 调整</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>AI 综合分析</h2>
+            <button id="ai-analysis-btn" class="secondary-btn">启动 AI 分析与计划优化</button>
+            <div id="ai-analysis-box" class="ai-box">点击按钮获取分析报告。</div>
+        </div>
+
+    </div>
+
+    <script>
+        let gaugeCharts = {};
+        let currentTrainingType = null;
+        let currentScheduleItemsForPeriodicUpdate = [];
+
+        // --- Plan Management ---
+        function getTodayDateString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+
+        // --- AI Comprehensive Analysis (Async with Polling) ---
+        document.getElementById('ai-analysis-btn').addEventListener('click', async function() {
+            const planDate = document.getElementById('dashboard-date').value;
+            const aiBox = document.getElementById('ai-analysis-box');
+            this.disabled = true;
+            aiBox.textContent = '已启动后台分析任务，正在准备数据...';
+
+            try {
+                const response = await fetch('/comprehensive_analysis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ plan_date: planDate })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || '启动分析失败');
+                }
+
+                const result = await response.json();
+                pollAnalysisStatus(result.job_id);
+
+            } catch (error) {
+                aiBox.textContent = `错误: ${error.message}`;
+                this.disabled = false;
+            }
+        });
+
+        function pollAnalysisStatus(jobId) {
+            const aiBox = document.getElementById('ai-analysis-box');
+            const analysisBtn = document.getElementById('ai-analysis-btn');
+            let dotCount = 1;
+
+            const intervalId = setInterval(async () => {
+                try {
+                    const statusResponse = await fetch(`/comprehensive_analysis_status/${jobId}`);
+                    if (!statusResponse.ok) {
+                        // Stop polling on server errors like 404
+                        throw new Error('无法获取分析状态');
+                    }
+                    
+                    const data = await statusResponse.json();
+                    
+                    if (data.status === 'finished') {
+                        clearInterval(intervalId);
+                        analysisBtn.disabled = false;
+                        if (data.result && data.result.error) {
+                            aiBox.innerHTML = `<strong>分析失败:</strong><br>${data.result.error}<br><small>${data.result.details || ''}</small>`;
+                        } else if (data.result && data.result.analysis_text) {
+                            aiBox.innerHTML = `<strong>AI 分析报告:</strong><br>${data.result.analysis_text.replace(/\n/g, '<br>')}`;
+                        } else {
+                            aiBox.textContent = '分析完成，但未收到有效结果。';
+                        }
+                    } else if (data.status === 'failed') {
+                        clearInterval(intervalId);
+                        analysisBtn.disabled = false;
+                        aiBox.textContent = '分析任务失败，请检查后台日志。';
+                    } else {
+                        // Update loading message
+                        aiBox.textContent = `正在进行深度AI分析，请稍候${'.'.repeat(dotCount)}`;
+                        dotCount = (dotCount % 3) + 1;
+                    }
+                } catch (error) {
+                    clearInterval(intervalId);
+                    analysisBtn.disabled = false;
+                    aiBox.textContent = `轮询错误: ${error.message}`;
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        function renderGauges() {
+            const currentContainer = document.getElementById('current-gauge-wrapper');
+            const otherContainer = document.getElementById('progress-gauges');
+            currentContainer.innerHTML = '';
+            otherContainer.innerHTML = '';
+            
+            const goalsProgress = JSON.parse(document.getElementById('goals-data').textContent);
+
+            if (!goalsProgress || goalsProgress.length === 0) {
+                otherContainer.textContent = '请先设定今日的学习目标。';
+                return;
+            }
+
+            let currentGoalExists = goalsProgress.some(goal => goal.type === currentTrainingType);
+
+            goalsProgress.forEach(goal => {
+                const isCurrent = goal.type === currentTrainingType;
+                const container = isCurrent ? currentContainer : otherContainer;
+
+                const wrapperDiv = document.createElement('div');
+                wrapperDiv.className = 'gauge-wrapper';
+                if (isCurrent) {
+                    wrapperDiv.classList.add('current-activity');
+                }
+
+                const gaugeDiv = document.createElement('div');
+                gaugeDiv.className = 'gauge-container';
+                gaugeDiv.style.cursor = 'pointer';
+                
+                wrapperDiv.appendChild(gaugeDiv);
+                container.appendChild(wrapperDiv);
+
+                const chart = echarts.init(gaugeDiv);
+                const timeText = goal.start_time && goal.end_time ? `\n{time|${goal.start_time} - ${goal.end_time}}` : '';
+                const option = {
+                    title: {
+                        text: `${goal.type}\n(${goal.answered_questions}/${goal.target_questions})${timeText}`,
+                        left: 'center',
+                        top: '65%',
+                        textStyle: {
+                            fontSize: isCurrent ? 18 : 14,
+                            lineHeight: isCurrent ? 22 : 18,
+                            rich: {
+                                time: {
+                                    fontSize: 12,
+                                    color: '#888',
+                                    lineHeight: 18
+                                }
+                            }
+                        }
+                    },
+                    series: [
+                        {
+                            type: 'gauge',
+                            center: ['50%', '60%'],
+                            startAngle: 200,
+                            endAngle: -20,
+                            min: 0,
+                            max: 100,
+                            splitNumber: 10,
+                            progress: { show: true, width: isCurrent ? 22 : 18 },
+                            pointer: { show: false },
+                            axisLine: { lineStyle: { width: isCurrent ? 22 : 18 } },
+                            axisTick: { show: false },
+                            splitLine: { show: false },
+                            axisLabel: { show: false },
+                            anchor: { show: false },
+                            title: { show: false },
+                            detail: { valueAnimation: true, fontSize: isCurrent ? 30 : 25, offsetCenter: ['0', '0%'], formatter: '{value}%' },
+                            data: [{ value: goal.percentage, name: '完成度' }]
+                        }
+                    ]
+                };
+                chart.setOption(option);
+                
+                gaugeDiv.addEventListener('click', () => {
+                    const selectedDate = document.getElementById('dashboard-date').value;
+                    window.location.href = `/training?type=${encodeURIComponent(goal.type)}&date=${selectedDate}&goal_id=${goal.id}`;
+                });
+
+                gaugeCharts[goal.id] = chart;
+            });
+
+            // If there is no current training, hide the current container
+            if (!currentGoalExists) {
+                currentContainer.style.display = 'none';
+            } else {
+                currentContainer.style.display = 'flex';
+            }
+        }
+
+        async function loadPlan(forceReload = true) {
+            // This function is now primarily for reloading gauge data after AI analysis.
+            // The goals list is no longer displayed.
+            renderGauges();
+        }
+
+        // --- Daily Schedule Management ---
+        function renderDailySchedule(items) {
+            const container = document.getElementById('daily-schedule-container');
+            container.innerHTML = '';
+            currentScheduleItemsForPeriodicUpdate = items || [];
+            if (!items || items.length === 0) {
+                container.innerHTML = '<p>今天还没有详细计划。</p>';
+                return;
+            }
+
+            items.sort((a, b) => (a.start_time || a.time || '').localeCompare(b.start_time || b.time || ''));
+
+            items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'schedule-item';
+
+                let tagClass = 'tag-other'; // Default tag color
+                const activity = item.activity.toLowerCase();
+                
+                // Handle time display for both old and new formats
+                let timeDisplay = item.time; // Fallback for old format
+                if (item.start_time) {
+                    timeDisplay = item.end_time ? `${item.start_time} - ${item.end_time}` : item.start_time;
+                }
+
+                if (activity.includes('复盘') || activity.includes('错题')) {
+                    tagClass = 'tag-review';
+                } else if (activity.includes('训练') || activity.includes('学习') || activity.includes('关系') || activity.includes('推理') || activity.includes('言语') || activity.includes('资料') || activity.includes('常识') || activity.includes('判断') || activity.includes('数量')) {
+                    tagClass = 'tag-train';
+                } else if (activity.includes('休息') || activity.includes('睡觉') || activity.includes('回顾')) {
+                    tagClass = 'tag-rest';
+                } else if (activity.includes('自主安排') || activity.includes('特殊')) {
+                    tagClass = 'tag-self';
+                } else if (activity.includes('餐') || activity.includes('饭')) {
+                    tagClass = 'tag-meal';
+                }
+
+                itemDiv.innerHTML = `
+                    <span class="schedule-time ${tagClass}">${timeDisplay || ''}</span>
+                    <span class="schedule-activity">${item.activity}</span>
+                    <span class="schedule-details">${item.details || ''}</span>
+                `;
+                container.appendChild(itemDiv);
+            });
+        }
+
+        function updateCurrentTrainingMode(items) {
+            if (!items || items.length === 0) {
+                currentTrainingType = null;
+                document.getElementById('current-training-mode').textContent = '当前训练模式: 无';
+                return;
+            }
+
+            const now = new Date();
+            const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            
+            let currentActivity = '无';
+            let foundActivityType = null;
+
+            const goalsProgress = JSON.parse(document.getElementById('goals-data').textContent || '[]');
+
+            for (const item of items) {
+                if (item.start_time && item.end_time) {
+                    if (currentTime >= item.start_time && currentTime < item.end_time) {
+                        // Find a matching goal type
+                        for (const goal of goalsProgress) {
+                            if (item.activity.includes(goal.type)) {
+                                currentActivity = item.activity;
+                                foundActivityType = goal.type;
+                                break; 
+                            }
+                        }
+                        if (foundActivityType) break;
+                    }
+                }
+            }
+            
+            currentTrainingType = foundActivityType;
+            document.getElementById('current-training-mode').textContent = `当前训练模式: ${currentActivity}`;
+        }
+
+        function refreshGaugesForCurrentTime() {
+            // This function is called periodically to update the highlighted gauge
+            // based on the current time, without needing to reload data from the server.
+            updateCurrentTrainingMode(currentScheduleItemsForPeriodicUpdate);
+            renderGauges();
+        }
+
+        async function loadDailySchedule() {
+            const scheduleDate = document.getElementById('dashboard-date').value;
+            const response = await fetch(`/get_daily_schedule?date=${scheduleDate}`);
+            const data = await response.json();
+            renderDailySchedule(data.schedule_items);
+            updateCurrentTrainingMode(data.schedule_items);
+        }
+
+        function pollScheduleAdjustmentStatus(jobId) {
+            const suggestionBox = document.getElementById('ai-suggestion-box');
+            const form = document.getElementById('adjust-schedule-form');
+            const button = form.querySelector('button');
+
+            fetch(`/adjust_schedule_status/${jobId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'finished') {
+                        const finalResult = data.result;
+                        if (finalResult && finalResult.error) {
+                            throw new Error(finalResult.details || finalResult.error);
+                        }
+                        suggestionBox.innerHTML = `<strong>AI 建议:</strong><br>${(finalResult.suggestion || '计划已更新。').replace(/\n/g, '<br>')}`;
+                        // The main update function handles fetching all new data and re-rendering everything correctly.
+                        updateDashboard(document.getElementById('dashboard-date').value);
+                        button.disabled = false;
+                        document.getElementById('schedule-adjustment-input').value = ''; // Clear input
+                    } else if (data.status === 'failed') {
+                        let errorMessage = 'AI 任务执行失败。';
+                        if (data.result && data.result.error) {
+                            errorMessage += ` 详情: ${data.result.details || data.result.error}`;
+                        }
+                        throw new Error(errorMessage);
+                    } else {
+                        // Still processing, poll again
+                        setTimeout(() => pollScheduleAdjustmentStatus(jobId), 2000);
+                    }
+                })
+                .catch(error => {
+                    suggestionBox.textContent = `错误: ${error.message}`;
+                    button.disabled = false;
+                });
+        }
+
+        document.getElementById('adjust-schedule-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const scheduleDate = document.getElementById('dashboard-date').value;
+            const userInput = document.getElementById('schedule-adjustment-input').value;
+            const suggestionBox = document.getElementById('ai-suggestion-box');
+            const button = this.querySelector('button');
+
+            button.disabled = true;
+            suggestionBox.textContent = 'AI 正在思考如何调整计划...';
+
+            try {
+                const response = await fetch('/adjust_schedule_with_ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: scheduleDate, request: userInput })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || '发送请求失败');
+                }
+
+                const result = await response.json();
+                if (result.job_id) {
+                    pollScheduleAdjustmentStatus(result.job_id);
+                } else {
+                    throw new Error('未能获取任务ID。');
+                }
+            } catch (error) {
+                suggestionBox.textContent = `调整失败: ${error.message}`;
+                button.disabled = false;
+            }
+        });
+
+        async function updateDashboard(date) {
+            if (!date) return;
+
+            // Step 1: Load plan and schedule first. This ensures that if a plan/schedule
+            // for the selected date doesn't exist, the backend creates a default one.
+            await loadPlanAndSchedule(date);
+
+            // Step 2: Now that we're sure a plan exists, fetch the dashboard data for it.
+            const response = await fetch(`/get_dashboard_data?date=${date}`);
+            if (!response.ok) {
+                console.error("Failed to fetch dashboard data.");
+                return;
+            }
+            const data = await response.json();
+
+            // Step 3: Update the embedded JSON data used by the gauge charts.
+            const goalsDataScript = document.getElementById('goals-data');
+            goalsDataScript.textContent = JSON.stringify(data.goals_progress || []);
+
+            // Step 4: Recalculate totals on the frontend based on the fresh data.
+            let totalAnswered = 0;
+            let totalTarget = 0;
+            if (data.goals_progress && data.goals_progress.length > 0) {
+                data.goals_progress.forEach(goal => {
+                    totalAnswered += goal.answered_questions || 0;
+                    totalTarget += goal.target_questions || 0;
+                });
+            }
+            
+            let percentage = 0;
+            if (totalTarget > 0) {
+                percentage = Math.min(100, Math.round((totalAnswered / totalTarget) * 100));
+            } else if (totalAnswered > 0) {
+                percentage = 100;
+            }
+
+            // Step 5: Update the data attributes for the main progress ring.
+            const mainProgress = document.getElementById('main-goal-progress');
+            mainProgress.dataset.answered = totalAnswered;
+            mainProgress.dataset.target = totalTarget;
+            mainProgress.dataset.percentage = percentage;
+
+            // Step 6: Re-render the visual components with the new data.
+            renderMainGoalProgress();
+            renderGauges();
+        }
+
+        async function loadPlanAndSchedule(date) {
+            // This function now only handles fetching and rendering the plan list and schedule,
+            // as the gauge data is handled by updateDashboard.
+
+            // Fetch and render daily schedule
+            const scheduleResponse = await fetch(`/get_daily_schedule?date=${date}`);
+            const scheduleData = await scheduleResponse.json();
+            renderDailySchedule(scheduleData.schedule_items);
+            updateCurrentTrainingMode(scheduleData.schedule_items);
+        }
+
+        // Update listener for date change
+        document.getElementById('dashboard-date').addEventListener('change', function() {
+            updateDashboard(this.value);
+        });
+
+        function renderMainGoalProgress() {
+            const container = document.getElementById('main-goal-progress');
+            const totalAnswered = parseInt(container.dataset.answered);
+            const totalTarget = parseInt(container.dataset.target);
+            const percentage = parseInt(container.dataset.percentage);
+
+            const chart = echarts.init(container);
+            const option = {
+                title: {
+                    text: `今日总进度\n${totalAnswered} / ${totalTarget > 0 ? totalTarget : '?'} 题`,
+                    left: 'center',
+                    top: 'center',
+                    textStyle: {
+                        fontSize: 16,
+                        lineHeight: 22
+                    }
+                },
+                series: [{
+                    type: 'pie',
+                    radius: ['75%', '90%'],
+                    avoidLabelOverlap: false,
+                    label: { show: false },
+                    labelLine: { show: false },
+                    data: [
+                        { 
+                            value: percentage, 
+                            name: '已完成',
+                            itemStyle: { color: '#4CAF50' }
+                        },
+                        { 
+                            value: 100 - percentage, 
+                            name: '未完成',
+                            itemStyle: { color: '#f0f0f0' }
+                        }
+                    ]
+                }]
+            };
+            chart.setOption(option);
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Use the date passed from the server, or default to today using JavaScript
+            const initialDate = "{{ selected_date|default('') }}" || getTodayDateString();
+            document.getElementById('dashboard-date').value = initialDate;
+
+            // This single call will orchestrate the loading and rendering in the correct order.
+            await updateDashboard(initialDate);
+
+            // Periodically update which gauge is highlighted based on the current time
+            setInterval(refreshGaugesForCurrentTime, 60000); // Every 60 seconds
+        });
+    </script>
+</body>
+</html>

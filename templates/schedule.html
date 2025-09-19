@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF--8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动态学习计划</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        h1, h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        #controls, #ai-adjuster {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px 0;
+            gap: 15px;
+        }
+        #schedule-date {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        td.time {
+            font-weight: bold;
+            color: #3498db;
+            width: 150px;
+        }
+        td.activity {
+            width: 250px;
+        }
+        td.details {
+            color: #555;
+        }
+        .delete-btn {
+            background: none;
+            border: none;
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 18px;
+        }
+        #add-item-form {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: auto 1fr 1fr auto;
+            gap: 10px;
+            align-items: center;
+        }
+        #add-item-form input {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex-grow: 1;
+        }
+        #add-item-form button {
+            padding: 10px 15px;
+            border: none;
+            background-color: #2ecc71;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #ai-adjuster {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fff;
+        }
+        #ai-request {
+            width: 60%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        #adjust-button {
+            padding: 10px 20px;
+            border: none;
+            background-color: #3498db;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #ai-suggestion {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #eafaf1;
+            border-left: 4px solid #2ecc71;
+            white-space: pre-wrap; /* Preserve line breaks */
+        }
+    </style>
+</head>
+<body>
+    <h1>动态学习计划</h1>
+
+    <div id="controls">
+        <label for="schedule-date">选择日期:</label>
+        <input type="date" id="schedule-date">
+    </div>
+
+    <table id="schedule-table">
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>活动</th>
+                <th>附加消息</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="schedule-body">
+            <!-- Rows will be injected here -->
+        </tbody>
+    </table>
+
+    <form id="add-item-form">
+        <input type="time" id="item-time" required>
+        <input type="text" id="item-activity" placeholder="活动 (例如: 资料分析-资料)" required>
+        <input type="text" id="item-details" placeholder="附加消息 (例如: 增长率计算)">
+        <button type="submit">添加</button>
+    </form>
+
+    <div id="ai-adjuster">
+        <h2>AI 智能调整</h2>
+        <input type="text" id="ai-request" placeholder="例如: 今天下午的训练取消，改到明天">
+        <button id="adjust-button">智能调整</button>
+        <div id="ai-suggestion" style="display: none;"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const scheduleBody = document.getElementById('schedule-body');
+            const addItemForm = document.getElementById('add-item-form');
+            const dateInput = document.getElementById('schedule-date');
+            const adjustButton = document.getElementById('adjust-button');
+            const aiRequestInput = document.getElementById('ai-request');
+            const aiSuggestionBox = document.getElementById('ai-suggestion');
+
+            let currentSchedule = [];
+
+            // Set date input to today
+            const today = new Date();
+            const yyyy = today.getFullYear();
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
+            const dd = String(today.getDate()).padStart(2, '0');
+            dateInput.value = `${yyyy}-${mm}-${dd}`;
+
+            async function fetchSchedule(date) {
+                try {
+                    const response = await fetch(`/get_daily_schedule?date=${date}`);
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    const data = await response.json();
+                    currentSchedule = data.schedule_items || [];
+                    renderSchedule();
+                } catch (error) {
+                    console.error('Error fetching schedule:', error);
+                    scheduleBody.innerHTML = '<tr><td colspan="4">无法加载计划，请稍后重试。</td></tr>';
+                }
+            }
+
+            function renderSchedule() {
+                scheduleBody.innerHTML = '';
+                currentSchedule.sort((a, b) => (a.start_time || a.time).localeCompare(b.start_time || b.time));
+                
+                currentSchedule.forEach((item, index) => {
+                    const row = document.createElement('tr');
+                    
+                    let timeDisplay = '';
+                    if (item.start_time && item.end_time) {
+                        timeDisplay = `${item.start_time} - ${item.end_time}`;
+                    } else if (item.start_time) {
+                        timeDisplay = item.start_time;
+                    } else {
+                        timeDisplay = item.time || ''; // Fallback for old format
+                    }
+
+                    row.innerHTML = `
+                        <td class="time">${timeDisplay}</td>
+                        <td class="activity">${item.activity || ''}</td>
+                        <td class="details">${item.details || ''}</td>
+                        <td><button class="delete-btn" data-index="${index}">&times;</button></td>
+                    `;
+                    scheduleBody.appendChild(row);
+                });
+            }
+
+            async function saveSchedule(date, schedule) {
+                try {
+                    await fetch('/save_daily_schedule', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ schedule_date: date, schedule_items: schedule })
+                    });
+                } catch (error) {
+                    console.error('Error saving schedule:', error);
+                }
+            }
+
+            dateInput.addEventListener('change', () => {
+                fetchSchedule(dateInput.value);
+            });
+
+            addItemForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const timeInput = document.getElementById('item-time');
+                const activityInput = document.getElementById('item-activity');
+                const detailsInput = document.getElementById('item-details');
+
+                currentSchedule.push({
+                    start_time: timeInput.value,
+                    end_time: '', // AI can fill this in later
+                    activity: activityInput.value,
+                    details: detailsInput.value
+                });
+
+                timeInput.value = '';
+                activityInput.value = '';
+                detailsInput.value = '';
+                renderSchedule();
+                await saveSchedule(dateInput.value, currentSchedule);
+            });
+
+            scheduleBody.addEventListener('click', async (e) => {
+                if (e.target.classList.contains('delete-btn')) {
+                    const index = parseInt(e.target.dataset.index, 10);
+                    currentSchedule.splice(index, 1);
+                    renderSchedule();
+                    await saveSchedule(dateInput.value, currentSchedule);
+                }
+            });
+
+            function pollJobStatus(jobId) {
+                fetch(`/adjust_schedule_status/${jobId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('无法获取任务状态。');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.status === 'finished') {
+                            const finalResult = data.result;
+                            if (finalResult && finalResult.error) {
+                                throw new Error(finalResult.details || finalResult.error);
+                            }
+                            
+                            // The result of the db_job is the ai_result, which contains the suggestion
+                            aiSuggestionBox.textContent = (finalResult && finalResult.suggestion) || '计划已成功更新，但AI未提供具体建议。';
+                            aiSuggestionBox.style.display = 'block';
+                            
+                            // The finalResult also contains the updated schedules. We can use this
+                            // to update the frontend directly without another fetch.
+                            const updatedSchedules = (finalResult && finalResult.updated_schedules) || {};
+                            const updatedForCurrentDate = updatedSchedules[dateInput.value];
+                            if (updatedForCurrentDate) {
+                                currentSchedule = updatedForCurrentDate;
+                                renderSchedule();
+                            } else {
+                                // Fallback to refetch if the specific date isn't in the response
+                                fetchSchedule(dateInput.value);
+                            }
+
+                            adjustButton.textContent = '智能调整';
+                            adjustButton.disabled = false;
+
+                        } else if (data.status === 'failed') {
+                            let errorMessage = 'AI 任务执行失败。';
+                            if (data.result && data.result.error) {
+                                errorMessage += ` 详情: ${data.result.details || data.result.error}`;
+                            }
+                            throw new Error(errorMessage);
+                        } else {
+                            // Still processing (queued, started), poll again after a delay
+                            setTimeout(() => pollJobStatus(jobId), 2000);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error polling job status:', error);
+                        aiSuggestionBox.textContent = `错误: ${error.message}`;
+                        aiSuggestionBox.style.display = 'block';
+                        adjustButton.textContent = '智能调整';
+                        adjustButton.disabled = false;
+                    });
+            }
+
+            adjustButton.addEventListener('click', async () => {
+                const requestText = aiRequestInput.value.trim();
+                if (!requestText) {
+                    alert('请输入您的调整请求。');
+                    return;
+                }
+
+                adjustButton.textContent = '正在思考...';
+                adjustButton.disabled = true;
+                aiSuggestionBox.style.display = 'block';
+                aiSuggestionBox.textContent = '已发送请求，等待AI响应...';
+
+                try {
+                    const response = await fetch('/adjust_schedule_with_ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date: dateInput.value, request: requestText })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || '发送AI调整请求失败');
+                    }
+
+                    const result = await response.json(); // This result is {"job_id": ...}
+                    if (result.job_id) {
+                        pollJobStatus(result.job_id);
+                    } else {
+                        throw new Error('未能获取任务ID。');
+                    }
+
+                } catch (error) {
+                    console.error('Error adjusting schedule:', error);
+                    aiSuggestionBox.textContent = `错误: ${error.message}`;
+                    adjustButton.textContent = '智能调整';
+                    adjustButton.disabled = false;
+                }
+            });
+
+            // Initial load
+            fetchSchedule(dateInput.value);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Sensitive configuration
+config.json
+
+# User-specific data
+/database/
+/instance/
+/uploads/
+/user_data/
+dump.rdb
+gunicorn.log
+worker.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+venv/
+env/
+
+# IDE / OS specific
+.DS_Store
+.idea/
+*.swp
+*.swo

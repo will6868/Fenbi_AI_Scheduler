@@ -1,0 +1,26 @@
+[
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/database/verbal_comprehension/2025-09-14.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/instance/data_analysis/2025-09-13.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/instance/app_data.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/database/judgement_reasoning/2025-09-13.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/database/2025-09-18.db"
+  },
+  {
+    "type": "sqlite",
+    "path": "/Users/xutao/Downloads/JIHUA/database/2025-09-17.db"
+  }
+]

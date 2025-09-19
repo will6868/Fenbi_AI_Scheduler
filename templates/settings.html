@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI接口设置</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="nav-link">返回主页</a>
+        <div class="section">
+            <h2>课程表信息</h2>
+            <form id="course-schedule-form" class="prompt-form" data-type="course_schedule">
+                <label for="course-schedule-file">课程表文件:</label>
+                <input type="file" id="course-schedule-file" name="files" multiple>
+                
+                <label for="course-additional-info">其他补充信息:</label>
+                <textarea id="course-additional-info" name="additional_info" rows="4"></textarea>
+                
+                <input type="submit" value="上传并分析课程表">
+            </form>
+            <div id="course_schedule-progress-container" class="progress-container" style="display: none;">
+                <p id="course_schedule-progress-status">正在处理...</p>
+                <div class="progress-bar">
+                    <div id="course_schedule-progress-bar-inner" class="progress-bar-inner"></div>
+                </div>
+            </div>
+            <div class="prompt-display-container">
+                <h3>生成的课程提示:</h3>
+                <textarea id="course-prompt-display" readonly rows="8"></textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>考试要求信息</h2>
+            <form id="exam-requirements-form" class="prompt-form" data-type="exam_requirements">
+                <label for="exam-requirements-file">考试要求文件:</label>
+                <input type="file" id="exam-requirements-file" name="files" multiple>
+
+                <label for="exam-additional-info">其他补充信息:</label>
+                <textarea id="exam-additional-info" name="additional_info" rows="4"></textarea>
+                
+                <input type="submit" value="上传并分析考试要求">
+            </form>
+            <div id="exam_requirements-progress-container" class="progress-container" style="display: none;">
+                <p id="exam_requirements-progress-status">正在处理...</p>
+                <div class="progress-bar">
+                    <div id="exam_requirements-progress-bar-inner" class="progress-bar-inner"></div>
+                </div>
+            </div>
+            <div class="prompt-display-container">
+                <h3>生成的考试提示:</h3>
+                <textarea id="exam-prompt-display" readonly rows="8"></textarea>
+            </div>
+        </div>
+        <div class="section">
+            <h2>自动化任务设置</h2>
+            <form id="automation-settings-form">
+                <div class="automation-task">
+                    <label>AI 综合分析:</label>
+                    <input type="checkbox" id="enable-comprehensive-analysis" name="enabled.comprehensive_analysis">
+                    <label for="time-comprehensive-analysis">执行时间:</label>
+                    <input type="time" id="time-comprehensive-analysis" name="execution_time.comprehensive_analysis">
+                </div>
+                <div class="automation-task">
+                    <label>AI 数据分析:</label>
+                    <input type="checkbox" id="enable-data-analysis" name="enabled.data_analysis">
+                    <label for="time-data-analysis">执行时间:</label>
+                    <input type="time" id="time-data-analysis" name="execution_time.data_analysis">
+                </div>
+                <div class="automation-task">
+                    <label>每日详细计划:</label>
+                    <input type="checkbox" id="enable-daily-plan" name="enabled.daily_plan">
+                    <label for="time-daily-plan">执行时间:</label>
+                    <input type="time" id="time-daily-plan" name="execution_time.daily_plan">
+                </div>
+                <input type="submit" value="保存自动化设置">
+            </form>
+        </div>
+        <div class="section">
+            <h2>AI接口设置</h2>
+            <form id="settings-form">
+                <label for="api-url">API 地址:</label>
+                <input type="text" id="api-url" name="api_url" placeholder="例如: https://api.newapi.pro/v1" required>
+                
+                <label for="api-key">API Key:</label>
+                <input type="password" id="api-key" name="api_key" required>
+
+                <label for="model">模型名称:</label>
+                <input type="text" id="model" name="model" value="gpt-4.1" required>
+
+                <label for="wechat-webhook-url">企业微信 Webhook 地址:</label>
+                <input type="text" id="wechat-webhook-url" name="wechat_webhook_url" placeholder="请输入企业微信机器人的Webhook地址">
+                
+                <input type="submit" value="保存设置">
+            </form>
+            <button class="test-btn" id="test-connection-btn">测试连接</button>
+            <button class="test-btn" id="test-wechat-btn">测试微信推送</button>
+            <a href="/file_manager" class="nav-button" style="text-decoration: none; margin-left: 10px;">文件管理</a>
+            <h3>测试日志:</h3>
+            <div id="log-box"></div>
+        </div>
+    </div>
+    <script>
+        // Function to handle streaming test responses
+        async function handleStream(response, logBox) {
+            if (!response.ok) {
+                const errorText = await response.text();
+                logBox.textContent = `错误: ${response.status} ${response.statusText}\n${errorText}`;
+                return;
+            }
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            logBox.textContent = '';
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                // Process and display the stream chunk by chunk
+                const lines = chunk.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const jsonData = JSON.parse(line.substring(6));
+                            if (jsonData.candidates && jsonData.candidates[0].content.parts[0].text) {
+                                logBox.textContent += jsonData.candidates[0].content.parts[0].text;
+                            }
+                        } catch (e) {
+                            // It might be a partial JSON object, just append raw for now
+                            logBox.textContent += line + '\n';
+                        }
+                    }
+                }
+                logBox.scrollTop = logBox.scrollHeight;
+            }
+        }
+
+        // --- NEW: Generic handler for both prompt generation forms ---
+        document.querySelectorAll('.prompt-form').forEach(form => {
+            form.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                const formType = this.dataset.type; // 'course_schedule' or 'exam_requirements'
+                const formData = new FormData(this);
+
+                const progressContainer = document.getElementById(`${formType}-progress-container`);
+                const progressBarInner = document.getElementById(`${formType}-progress-bar-inner`);
+                const progressStatus = document.getElementById(`${formType}-progress-status`);
+
+                progressContainer.style.display = 'block';
+                progressBarInner.style.width = '0%';
+                progressStatus.textContent = '正在上传文件...';
+
+                // The new endpoint will be /upload_prompt_data
+                const response = await fetch(`/upload_prompt_data?type=${formType}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    const taskId = result.task_id;
+                    progressStatus.textContent = '文件上传成功，正在处理...';
+                    
+                    const interval = setInterval(async () => {
+                        const statusResponse = await fetch(`/task_status/${taskId}`);
+                        const statusResult = await statusResponse.json();
+                        
+                        if (statusResponse.ok) {
+                            let progress = parseInt(statusResult.progress) || 0;
+                            progressBarInner.style.width = progress + '%';
+                            progressStatus.textContent = statusResult.status;
+                            
+                            if (progress >= 100) {
+                                clearInterval(interval);
+                                progressStatus.textContent = '处理完成！';
+                                setTimeout(() => {
+                                    alert(statusResult.message || '提示生成成功！');
+                                    progressContainer.style.display = 'none';
+                                    // Refresh the displayed prompts after completion
+                                    loadExistingPrompts();
+                                }, 500);
+                            }
+                        } else {
+                            clearInterval(interval);
+                            alert('获取任务状态失败: ' + (statusResult.error || '未知错误'));
+                            progressContainer.style.display = 'none';
+                        }
+                    }, 2000);
+                } else {
+                    alert('上传失败: ' + (result.error || '未知错误'));
+                    progressContainer.style.display = 'none';
+                }
+            });
+        });
+
+        // --- NEW: Function to load existing prompts on page load ---
+        async function loadExistingPrompts() {
+            try {
+                const response = await fetch('/get_generated_prompts');
+                if (!response.ok) return;
+                const data = await response.json();
+                document.getElementById('course-prompt-display').value = data.course_prompt || '';
+                document.getElementById('exam-prompt-display').value = data.exam_prompt || '';
+            } catch (e) {
+                console.error("Failed to load existing prompts:", e);
+            }
+        }
+
+        // Load prompts when the page is ready
+        document.addEventListener('DOMContentLoaded', loadExistingPrompts);
+
+        // Handler for settings form
+        document.getElementById('settings-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+
+            const response = await fetch('/save_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                alert('设置已保存！');
+            } else {
+                alert('保存失败。');
+            }
+        });
+
+        // --- NEW: Handler for automation settings form ---
+        document.getElementById('automation-settings-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            
+            // Custom logic to handle nested structure
+            const data = {
+                enabled: {
+                    comprehensive_analysis: formData.has('enabled.comprehensive_analysis'),
+                    data_analysis: formData.has('enabled.data_analysis'),
+                    daily_plan: formData.has('enabled.daily_plan')
+                },
+                execution_time: {
+                    comprehensive_analysis: formData.get('execution_time.comprehensive_analysis'),
+                    data_analysis: formData.get('execution_time.data_analysis'),
+                    daily_plan: formData.get('execution_time.daily_plan')
+                }
+            };
+
+            const response = await fetch('/save_automation_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                alert('自动化设置已保存！');
+            } else {
+                const result = await response.json();
+                alert('保存失败: ' + (result.error || '未知错误'));
+            }
+        });
+
+        // --- NEW: Function to load automation settings on page load ---
+        async function loadAutomationSettings() {
+            try {
+                const response = await fetch('/get_automation_settings');
+                if (!response.ok) return;
+                const data = await response.json();
+                
+                // Populate the form with loaded data
+                document.getElementById('enable-comprehensive-analysis').checked = data.enabled.comprehensive_analysis;
+                document.getElementById('time-comprehensive-analysis').value = data.execution_time.comprehensive_analysis;
+                
+                document.getElementById('enable-data-analysis').checked = data.enabled.data_analysis;
+                document.getElementById('time-data-analysis').value = data.execution_time.data_analysis;
+
+                document.getElementById('enable-daily-plan').checked = data.enabled.daily_plan;
+                document.getElementById('time-daily-plan').value = data.execution_time.daily_plan;
+
+            } catch (e) {
+                console.error("Failed to load automation settings:", e);
+            }
+        }
+
+        // Load automation settings when the page is ready
+        document.addEventListener('DOMContentLoaded', loadAutomationSettings);
+
+        // Handler for test connection button
+        document.getElementById('test-connection-btn').addEventListener('click', async function() {
+            const logBox = document.getElementById('log-box');
+            logBox.textContent = '正在连接AI接口...';
+            const response = await fetch('/test_ai', { method: 'POST' });
+            await handleStream(response, logBox);
+        });
+
+        // Handler for test WeChat push button
+        document.getElementById('test-wechat-btn').addEventListener('click', async function() {
+            const logBox = document.getElementById('log-box');
+            logBox.textContent = '正在发送测试消息到企业微信...';
+            const response = await fetch('/test_wechat_push', { method: 'POST' });
+            const result = await response.json();
+            if (response.ok) {
+                logBox.textContent = `成功: ${result.message}`;
+            } else {
+                logBox.textContent = `失败: ${result.error}`;
+            }
+        });
+    </script>
+</body>
+</html>

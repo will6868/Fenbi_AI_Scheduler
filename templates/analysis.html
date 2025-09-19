@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据综合分析</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.3.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>数据综合分析</h1>
+            <a href="/" class="nav-link">返回主页</a>
+        </div>
+        <div class="section">
+            <h2>总体概览</h2>
+            <div id="overview-section" style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: center;">
+                <div id="overview-cards" style="display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Stat cards will be rendered here -->
+                </div>
+                <div id="overview-radar-chart" style="width: 100%; height: 400px;">
+                    <!-- Radar chart will be rendered here -->
+                </div>
+            </div>
+        </div>
+        <div class="section">
+            <h2>各题型详细分析</h2>
+            <div id="carousel-wrapper" style="position: relative; width: 100%; overflow: hidden; margin-top: 20px;">
+                <div id="carousel-track" style="display: flex; transition: transform 0.5s ease-in-out;">
+                    <!-- Chart slides will be dynamically inserted here -->
+                </div>
+                <button id="prev-btn" style="position: absolute; top: 50%; left: 15px; transform: translateY(-50%); z-index: 10; background: rgba(0,0,0,0.2); color: white; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 24px; line-height: 40px; text-align: center; padding: 0;"><</button>
+                <button id="next-btn" style="position: absolute; top: 50%; right: 15px; transform: translateY(-50%); z-index: 10; background: rgba(0,0,0,0.2); color: white; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 24px; line-height: 40px; text-align: center; padding: 0;">></button>
+            </div>
+        </div>
+        <div class="section">
+            <h2>训练趋势</h2>
+            <div id="trend-charts">
+                <!-- Trend charts will be rendered here -->
+            </div>
+        </div>
+        <div class="section">
+            <h2>AI 数据分析</h2>
+            <button id="ai-full-analysis-btn" class="secondary-btn">启动 AI 综合分析</button>
+            <div id="ai-full-analysis-box" class="ai-box" style="margin-top: 15px;">点击按钮，AI 将对以上所有图表数据进行深度分析，并提供针对性的建议。</div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const allData = JSON.parse('{{ all_data|safe }}');
+
+            if (allData.length === 0) {
+                document.getElementById('overview-charts').innerHTML = '<p>暂无数据可供分析。</p>';
+                return;
+            }
+
+            // --- 1. 总体概览 ---
+            let totalQuestions = 0;
+            let totalTime = 0;
+            let totalCorrect = 0;
+            let totalAnswered = 0;
+
+            allData.forEach(d => {
+                totalQuestions += d.total_questions || 0;
+                totalTime += d.total_time_minutes || 0;
+                totalCorrect += d.correct_answers || 0;
+                totalAnswered += d.questions_answered || 0;
+            });
+
+            const avgAccuracy = totalAnswered > 0 ? (totalCorrect / totalAnswered * 100).toFixed(2) : 0;
+
+            const overviewCardsContainer = document.getElementById('overview-cards');
+            overviewCardsContainer.innerHTML = `
+                <div class="stat-card"><h3>总题数</h3><p>${totalQuestions}</p></div>
+                <div class="stat-card"><h3>总用时 (分钟)</h3><p>${totalTime}</p></div>
+                <div class="stat-card"><h3>平均正确率</h3><p>${avgAccuracy}%</p></div>
+            `;
+
+            // --- 2. 数据处理与聚合 ---
+            const typeData = {};
+            allData.forEach(d => {
+                const type = d.practice_type;
+                if (!typeData[type]) {
+                    typeData[type] = {
+                        totalQuestions: 0,
+                        totalTime: 0,
+                        totalCorrect: 0,
+                        totalAnswered: 0,
+                        count: 0
+                    };
+                }
+                typeData[type].totalQuestions += d.total_questions || 0;
+                typeData[type].totalTime += d.total_time_minutes || 0;
+                typeData[type].totalCorrect += d.correct_answers || 0;
+                typeData[type].totalAnswered += d.questions_answered || 0;
+                typeData[type].count++;
+            });
+
+            const typeNames = Object.keys(typeData);
+
+            // --- 3. 渲染雷达图 (移动到概览部分) ---
+            const radarIndicators = typeNames.map(type => ({ name: type }));
+            const radarData = {
+                answered: [],
+                time: [],
+                accuracy: []
+            };
+            
+            typeNames.forEach(type => {
+                const data = typeData[type];
+                radarData.answered.push(data.totalAnswered);
+                radarData.time.push(data.totalTime);
+                const accuracy = data.totalAnswered > 0 ? (data.totalCorrect / data.totalAnswered * 100) : 0;
+                radarData.accuracy.push(accuracy.toFixed(2));
+            });
+
+            const radarChart = echarts.init(document.getElementById('overview-radar-chart'));
+            const radarOption = {
+                title: { text: '各题型综合表现' },
+                tooltip: { trigger: 'item' },
+                legend: { data: ['做题量', '总用时 (分钟)', '正确率 (%)'], bottom: 0 },
+                radar: {
+                    indicator: radarIndicators,
+                    shape: 'circle',
+                    splitNumber: 5,
+                },
+                series: [{
+                    name: '题型综合表现',
+                    type: 'radar',
+                    data: [
+                        { value: radarData.answered, name: '做题量' },
+                        { value: radarData.time, name: '总用时 (分钟)' },
+                        { value: radarData.accuracy, name: '正确率 (%)' }
+                    ]
+                }]
+            };
+            radarChart.setOption(radarOption);
+
+            // --- 4. 各题型详细趋势分析 (Carousel) ---
+            const track = document.getElementById('carousel-track');
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+            const carouselWrapper = document.getElementById('carousel-wrapper');
+
+            const typeTrendData = {};
+            allData.forEach(d => {
+                const type = d.practice_type;
+                const date = d.submission_time.split(' ')[0];
+                if (!typeTrendData[type]) typeTrendData[type] = {};
+                if (!typeTrendData[type][date]) {
+                    typeTrendData[type][date] = { totalCorrect: 0, totalAnswered: 0, totalTime: 0 };
+                }
+                typeTrendData[type][date].totalCorrect += d.correct_answers || 0;
+                typeTrendData[type][date].totalAnswered += d.questions_answered || 0;
+                typeTrendData[type][date].totalTime += d.total_time_minutes || 0;
+            });
+
+            // All types with at least one day of data will be included in the carousel.
+            let typesWithTrends = Object.keys(typeTrendData);
+            
+            const mockExamType = "行测全真模拟考试 (摸底测试)";
+            const mockExamIndex = typesWithTrends.indexOf(mockExamType);
+            if (mockExamIndex > 0) {
+                const [mockExam] = typesWithTrends.splice(mockExamIndex, 1);
+                typesWithTrends.unshift(mockExam);
+            }
+
+            if (typesWithTrends.length === 0) {
+                carouselWrapper.innerHTML = '<p style="text-align: center;">暂无任何题型数据可供分析。</p>';
+            } else {
+                typesWithTrends.forEach(type => {
+                    const slide = document.createElement('div');
+                    slide.style.minWidth = '100%';
+                    slide.style.boxSizing = 'border-box';
+                    slide.style.height = '400px';
+                    track.appendChild(slide);
+
+                    const dates = Object.keys(typeTrendData[type]).sort((a, b) => new Date(a) - new Date(b));
+                    const chartData = { accuracy: [], speed: [], volume: [] };
+                    dates.forEach(date => {
+                        const dailyData = typeTrendData[type][date];
+                        const accuracy = dailyData.totalAnswered > 0 ? (dailyData.totalCorrect / dailyData.totalAnswered * 100) : 0;
+                        const speed = dailyData.totalTime > 0 ? (dailyData.totalAnswered / dailyData.totalTime) : 0;
+                        chartData.accuracy.push(accuracy.toFixed(2));
+                        chartData.speed.push(speed.toFixed(2));
+                        chartData.volume.push(dailyData.totalAnswered);
+                    });
+
+                    const lineChart = echarts.init(slide);
+                const lineOption = {
+                    title: { text: `${type} - 训练趋势`, left: 'center' },
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['做题量', '做题速度 (题/分)', '正确率 (%)'], top: 30 },
+                    grid: { top: 80, left: 60, right: 60, bottom: 40 },
+                    xAxis: { type: 'category', data: dates },
+                    yAxis: [
+                        { type: 'value', name: '题数 / 速度' },
+                        { type: 'value', name: '正确率 (%)', min: 0, max: 100, axisLabel: { formatter: '{value} %' } }
+                    ],
+                    series: [
+                        { name: '做题量', type: 'line', symbol: 'circle', symbolSize: 8, data: chartData.volume },
+                        { name: '做题速度 (题/分)', type: 'line', symbol: 'circle', symbolSize: 8, data: chartData.speed },
+                        { name: '正确率 (%)', type: 'line', yAxisIndex: 1, symbol: 'circle', symbolSize: 8, data: chartData.accuracy }
+                    ]
+                };
+                    lineChart.setOption(lineOption);
+                });
+
+                let currentIndex = 0;
+                const totalSlides = typesWithTrends.length;
+
+                function updateCarousel() {
+                    track.style.transform = `translateX(-${currentIndex * 100}%)`;
+
+                    if (totalSlides <= 1) {
+                        prevBtn.style.display = 'none';
+                        nextBtn.style.display = 'none';
+                        return;
+                    } else {
+                        prevBtn.style.display = 'block';
+                        nextBtn.style.display = 'block';
+                    }
+
+                    prevBtn.disabled = currentIndex === 0;
+                    nextBtn.disabled = currentIndex === totalSlides - 1;
+
+                    prevBtn.style.opacity = prevBtn.disabled ? '0.3' : '0.7';
+                    nextBtn.style.opacity = nextBtn.disabled ? '0.3' : '0.7';
+                    prevBtn.style.cursor = prevBtn.disabled ? 'not-allowed' : 'pointer';
+                    nextBtn.style.cursor = nextBtn.disabled ? 'not-allowed' : 'pointer';
+                }
+
+                nextBtn.addEventListener('click', () => {
+                    if (!nextBtn.disabled) {
+                        currentIndex++;
+                        updateCarousel();
+                    }
+                });
+
+                prevBtn.addEventListener('click', () => {
+                    if (!prevBtn.disabled) {
+                        currentIndex--;
+                        updateCarousel();
+                    }
+                });
+                
+                // Resize charts on window resize and carousel change
+                new ResizeObserver(() => {
+                    const currentSlide = track.children[currentIndex];
+                    if (currentSlide) {
+                        const chartInstance = echarts.getInstanceByDom(currentSlide);
+                        if (chartInstance) {
+                            chartInstance.resize();
+                        }
+                    }
+                }).observe(carouselWrapper);
+
+                updateCarousel();
+            }
+
+            // --- 5. 训练趋势 ---
+            const trendData = {};
+            allData.forEach(d => {
+                const date = d.submission_time.split(' ')[0];
+                if (!trendData[date]) {
+                    trendData[date] = {
+                        totalQuestions: 0,
+                        totalCorrect: 0,
+                        totalAnswered: 0
+                    };
+                }
+                trendData[date].totalQuestions += d.total_questions || 0;
+                trendData[date].totalCorrect += d.correct_answers || 0;
+                trendData[date].totalAnswered += d.questions_answered || 0;
+            });
+
+            const sortedDates = Object.keys(trendData).sort((a, b) => new Date(a) - new Date(b));
+            const trendChartData = {
+                dates: sortedDates,
+                questions: [],
+                accuracy: []
+            };
+
+            sortedDates.forEach(date => {
+                const data = trendData[date];
+                trendChartData.questions.push(data.totalQuestions);
+                const accuracy = data.totalAnswered > 0 ? (data.totalCorrect / data.totalAnswered * 100).toFixed(2) : 0;
+                trendChartData.accuracy.push(accuracy);
+            });
+
+            const trendContainer = document.getElementById('trend-charts');
+            const lineChartDiv = document.createElement('div');
+            lineChartDiv.style.width = '100%';
+            lineChartDiv.style.height = '400px';
+            trendContainer.appendChild(lineChartDiv);
+
+            const lineChart = echarts.init(lineChartDiv);
+            const lineOption = {
+                title: { text: '每日训练趋势' },
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['总题数', '正确率 (%)'] },
+                xAxis: { type: 'category', data: trendChartData.dates },
+                yAxis: [
+                    { type: 'value', name: '总题数' },
+                    { type: 'value', name: '正确率 (%)', min: 0, max: 100, axisLabel: { formatter: '{value} %' } }
+                ],
+                series: [
+                    { name: '总题数', type: 'line', data: trendChartData.questions },
+                    { name: '正确率 (%)', type: 'line', yAxisIndex: 1, data: trendChartData.accuracy }
+                ]
+            };
+            lineChart.setOption(lineOption);
+
+            // --- 6. AI Full Analysis (Refactored) ---
+            const aiButton = document.getElementById('ai-full-analysis-btn');
+            const aiBox = document.getElementById('ai-full-analysis-box');
+
+            aiButton.addEventListener('click', async function() {
+                aiButton.disabled = true;
+                aiBox.innerHTML = 'AI 正在启动分析任务，请稍候...';
+
+                try {
+                    // Step 1: Initiate the analysis and get a job ID
+                    const initialResponse = await fetch('/analyze_all_data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                        // Body is no longer needed as the backend handles data aggregation
+                    });
+
+                    if (!initialResponse.ok) {
+                        throw new Error('Failed to start analysis job.');
+                    }
+                    const { job_id } = await initialResponse.json();
+
+                    // Step 2: Poll for the result
+                    aiBox.innerHTML = '分析任务已提交，正在处理数据... (这可能需要1-2分钟)';
+                    
+                    const poll = async (jobId) => {
+                        const statusResponse = await fetch(`/dashboard_analysis_status/${jobId}`);
+                        if (!statusResponse.ok) {
+                            throw new Error('Failed to get job status.');
+                        }
+                        const data = await statusResponse.json();
+
+                        if (data.status === 'finished') {
+                            if (data.result && data.result.analysis) {
+                                aiBox.innerHTML = `<strong>AI 综合分析报告:</strong><br>${data.result.analysis}`;
+                            } else if (data.result && data.result.error) {
+                                aiBox.innerHTML = `<strong>分析出错:</strong> ${data.result.details || data.result.error}`;
+                            } else {
+                                aiBox.innerHTML = '分析完成，但未收到有效结果。';
+                            }
+                            aiButton.disabled = false;
+                        } else if (data.status === 'failed') {
+                            aiBox.innerHTML = `<strong>分析任务失败:</strong> ${data.result ? JSON.stringify(data.result) : '未知错误'}`;
+                            aiButton.disabled = false;
+                        } else {
+                            // If still pending or started, poll again after a delay
+                            setTimeout(() => poll(jobId), 5000);
+                        }
+                    };
+
+                    poll(job_id);
+
+                } catch (error) {
+                    aiBox.textContent = `请求失败: ${error.message}`;
+                    aiButton.disabled = false;
+                }
+            });
+        });
+    </script>
+</body>
+</html>

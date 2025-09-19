@@ -9,8 +9,21 @@ WORKER_PID_FILE="worker.pid"
 
 # --- 函数定义 ---
 
+# 目录初始化函数
+setup_directories() {
+    echo "   -> 检查并创建所需目录..."
+    DIRS=("database" "instance" "uploads" "user_data" "user_data/course_schedule" "user_data/exam_requirements" "uploads/temp_prompt_files")
+    for dir in "${DIRS[@]}"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir"
+            echo "      -> 目录 '$dir' 已创建。"
+        fi
+    done
+}
+
 # 启动函数
 start() {
+    setup_directories # 初始化目录
     echo "🚀 开始启动应用 (本地开发模式)..."
     
     # 检查并激活虚拟环境

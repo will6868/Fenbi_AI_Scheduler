@@ -31,7 +31,29 @@ python3 -m venv venv
 source venv/bin/activate  # 在 Windows 上使用 `venv\Scripts\activate`
 ```
 
-### 3. 安装依赖
+### 3. 安装并启动 Redis
+
+本项目使用 Redis 作为消息队列，因此需要先安装并启动 Redis 服务。
+
+**对于 Linux (Ubuntu/Debian):**
+
+```bash
+sudo apt update
+sudo apt install redis-server
+sudo systemctl start redis-server
+sudo systemctl enable redis-server  # 设置开机自启
+```
+
+**对于 Windows:**
+
+Windows 用户可以从 Redis 的 GitHub 发布页面下载最新的 `.msi` 安装包。
+
+1.  访问 [Redis on Windows 发布页面](https://github.com/tporadowski/redis/releases)。
+2.  下载最新的 `Redis-x.x.x-x64-xxx.msi` 文件。
+3.  运行安装程序，并按照提示完成安装。安装过程中请确保勾选 "Add the Redis installation folder to the PATH environment variable"。
+4.  安装完成后，Redis 服务会自动在后台运行。
+
+### 4. 安装依赖
 
 安装项目所需的所有 Python 库：
 
@@ -39,7 +61,7 @@ source venv/bin/activate  # 在 Windows 上使用 `venv\Scripts\activate`
 pip install -r requirements.txt
 ```
 
-### 4. 配置应用
+### 5. 配置应用
 
 项目需要一个 `config.json` 文件来存储敏感信息和关键配置。我们提供了一个模板文件 `config.json.example`，您可以复制并修改它。
 
@@ -63,7 +85,7 @@ cp config.json.example config.json
 - `wechat_webhook_url`: 如果您想每天接收学习计划的推送，请配置此项。
 - `app_base_url`: 应用部署后可访问的地址。
 
-### 5. 数据库说明
+### 6. 数据库说明
 
 本项目的数据库是自动创建的，您**无需**执行任何手动初始化命令。
 

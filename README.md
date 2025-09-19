@@ -77,7 +77,7 @@ cp config.json.example config.json
     "api_key": "在此处输入您的 API 密钥",
     "model": "在此处输入您希望使用的 AI 模型名称",
     "wechat_webhook_url": "在此处输入您的企业微信 Webhook URL (可选，用于接收每日计划)",
-    "app_base_url": "在此处输入您的应用基础 URL (例如: http://localhost:5000)"
+    "app_base_url": "在此处输入您的应用基础 URL (例如: http://localhost:58000)"
 }
 ```
 
@@ -101,14 +101,14 @@ cp config.json.example config.json
 python3 app.py
 ```
 
-应用将在 `http://127.0.0.1:5000` 上启动。
+应用将在 `http://127.0.0.1:58000` 上启动。
 
 ### 使用 Gunicorn (用于生产)
 
 为了获得更好的性能和稳定性，建议在生产环境中使用 Gunicorn。
 
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5000 app:app
+gunicorn -w 4 -b 0.0.0.0:58000 app:app
 ```
 
 ### 使用启动脚本
@@ -123,7 +123,7 @@ chmod +x start.sh
 ## 如何使用
 
 1.  **启动应用**: 根据上述指南运行应用。
-2.  **访问 Web 界面**: 在浏览器中打开 `http://<您的服务器地址或localhost>:5000`。
+2.  **访问 Web 界面**: 在浏览器中打开 `http://<您的服务器地址或localhost>:58000`。
 3.  **上传文件**:
     -   在 "课程表" 部分，上传您的课程安排 `.xlsx` 文件。
     -   在 "考试要求" 部分，上传您的考试大纲 `.docx` 文件。

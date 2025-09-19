@@ -63,16 +63,11 @@ cp config.json.example config.json
 - `wechat_webhook_url`: 如果您想每天接收学习计划的推送，请配置此项。
 - `app_base_url`: 应用部署后可访问的地址。
 
-### 5. 初始化数据库
+### 5. 数据库说明
 
-首次运行时，需要初始化数据库。
+本项目的数据库是自动创建的，您**无需**执行任何手动初始化命令。
 
-```bash
-flask db init
-flask db migrate -m "Initial migration."
-flask db upgrade
-```
-*注意: 根据 `app.py` 的代码，数据库会在首次运行时自动创建，但如果模型发生变化，以上命令会很有用。*
+当您首次运行应用并开始使用各项功能时，所需的数据库文件会自动在 `database/` 和 `instance/` 目录下生成。
 
 ## 运行项目
 
